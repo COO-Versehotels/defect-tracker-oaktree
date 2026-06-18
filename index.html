@@ -722,7 +722,7 @@ function renderLogs(){
   cont.innerHTML=list.map(l=>`<div class="log-item">
     <span class="log-ic">${ACT_ICON[l.action]||'•'}</span>
     <div class="log-body">
-      <div><span class="log-user">${esc(l.user_email)}</span> · <span class="log-act">${ACT_NAME[l.action]||l.action}</span></div>
+      <div><span class="log-user">${esc(displayName(l.user_email))}</span> · <span class="log-act">${ACT_NAME[l.action]||l.action}</span></div>
       ${l.detail?`<div class="log-det">${esc(l.detail)}</div>`:''}
     </div>
     <div class="log-time">${fmtLogTime(l.created_at)}</div>
@@ -764,7 +764,7 @@ async function openHistory(defectId){
     cont.innerHTML=list.map(l=>`<div class="log-item">
       <span class="log-ic">${ACT_ICON[l.action]||'•'}</span>
       <div class="log-body">
-        <div><span class="log-user">${esc(l.user_email)}</span> · <span class="log-act">${ACT_NAME[l.action]||l.action}</span></div>
+        <div><span class="log-user">${esc(displayName(l.user_email))}</span> · <span class="log-act">${ACT_NAME[l.action]||l.action}</span></div>
         ${l.detail?`<div class="log-det">${esc(l.detail)}</div>`:''}
       </div>
       <div class="log-time">${fmtLogTime(l.created_at)}</div>
@@ -998,9 +998,34 @@ function doLogout(){
   document.getElementById('login').style.display='flex';
   document.getElementById('loginEmail').value='';
 }
+// Cache email → nama untuk display (privacy: hindari pajang email di history)
+let userNameCache = {};
+async function loadUserNameCache(){
+  try{
+    const {data} = await supa.from('defect_users').select('email,name');
+    if(data){
+      userNameCache = {};
+      data.forEach(u=>{ if(u.name) userNameCache[u.email] = u.name; });
+    }
+  }catch(e){ /* fail silent — fallback ke prefix email */ }
+}
+// Helper: ambil display name dari email
+function displayName(email){
+  if(!email) return '-';
+  if(userNameCache[email]) return userNameCache[email];
+  // Fallback: ambil prefix email sebelum @, sensor sebagian
+  const at = email.indexOf('@');
+  if(at<=0) return email;
+  const prefix = email.slice(0, at);
+  // Kalau prefix pendek (≤6), tampilkan apa adanya tanpa domain
+  // Kalau panjang, potong + tambah ***
+  return prefix.length<=6 ? prefix : prefix.slice(0,Math.min(prefix.length,8));
+}
+
 async function enterApp(){
   document.getElementById('login').style.display='none';
   document.getElementById('app').style.display='block';
+  await loadUserNameCache(); // load nama-nama user untuk display (privacy) — tunggu selesai sebelum render
   document.getElementById('rolePill').textContent = currentUser.role;
   document.getElementById('fab').classList.toggle('hidden', !canEdit());
   document.getElementById('logBtnTop').style.display = currentUser.role==='admin' ? 'flex' : 'none';
@@ -1076,14 +1101,12 @@ function parsePhotos(val){
 }
 // Format info pembuat & update terakhir untuk ditampilkan di kartu/history
 function bylineHtml(d){
-  const created = d.created_by ? `<span>📝 Dibuat oleh <b>${esc(d.created_by)}</b>${d.date_report?' · '+fmtDate(d.date_report):''}</span>` : '';
-  // Tampilkan update terakhir kalau ada updated_by DAN berbeda dari created_by atau ada updated_at
+  const created = d.created_by ? `<span>📝 Dibuat oleh <b>${esc(displayName(d.created_by))}</b>${d.date_report?' · '+fmtDate(d.date_report):''}</span>` : '';
   let updated = '';
   if(d.updated_by && d.updated_at){
-    // Tampilkan kalau berbeda dari created (kalau sama, asumsikan belum pernah diupdate)
     const isJustCreated = d.created_by===d.updated_by && (!d.date_report || d.updated_at.slice(0,10)===d.date_report);
     if(!isJustCreated){
-      updated = `<span>🔄 Update oleh <b>${esc(d.updated_by)}</b> · ${fmtLogTime(d.updated_at)}</span>`;
+      updated = `<span>🔄 Update oleh <b>${esc(displayName(d.updated_by))}</b> · ${fmtLogTime(d.updated_at)}</span>`;
     }
   }
   if(!created && !updated) return '';
@@ -1497,6 +1520,8 @@ async function saveUpdate(){
 async function loadDefects(manual){
   if(manual) showToast('Menyegarkan...');
   try{
+    // Refresh user name cache (supaya byline pakai nama terbaru)
+    await loadUserNameCache();
     const {data,error}=await supa.from('defects').select('*').eq('hotel',HOTEL).order('updated_at',{ascending:false});
     if(error) throw new Error(error.message);
     defects=data||[];
