@@ -1101,7 +1101,9 @@ function parsePhotos(val){
 }
 // Format info pembuat & update terakhir untuk ditampilkan di kartu/history
 function bylineHtml(d){
-  const created = d.created_by ? `<span>📝 Dibuat oleh <b>${esc(displayName(d.created_by))}</b>${d.date_report?' · '+fmtDate(d.date_report):''}</span>` : '';
+  // Pakai created_at kalau ada (lengkap tanggal+jam:menit), fallback ke date_report
+  const createdTime = d.created_at ? fmtLogTime(d.created_at) : (d.date_report ? fmtDate(d.date_report) : '');
+  const created = d.created_by ? `<span>📝 Dibuat oleh <b>${esc(displayName(d.created_by))}</b>${createdTime?' · '+createdTime:''}</span>` : '';
   let updated = '';
   if(d.updated_by && d.updated_at){
     const isJustCreated = d.created_by===d.updated_by && (!d.date_report || d.updated_at.slice(0,10)===d.date_report);
@@ -1645,8 +1647,9 @@ function openSubAreaHistory(area, name){
       const cat=d.category?`<span class="cat-badge ${d.category==='HK'?'cat-hk':'cat-eng'}">${d.category==='HK'?'🧹 HK':'🔧 ENG'}</span>`:'';
       return `<div class="defect-item-card" style="cursor:pointer;" onclick="closeRoomHistory();openUpdateDefect('${d.id}')">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-          ${cat}<span class="badge ${statusClass[d.status]}">${statusShort[d.status]}</span>
+          ${cat}
           <span class="prio ${prioClass[d.priority]||'p-med'}">${d.priority||'-'}</span>
+          <span class="badge ${statusClass[d.status]}">${statusShort[d.status]}</span>
         </div>
         <div class="desc" style="font-size:14px;font-weight:600;margin-bottom:4px;">${esc(d.description)}</div>
         <div class="meta" style="font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:10px;">
@@ -1793,8 +1796,8 @@ function openRoomHistory(roomNum){
       return `<div class="defect-item-card" style="cursor:pointer;" onclick="closeRoomHistory();openUpdateDefect('${d.id}')">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
           ${cat}
-          <span class="badge ${statusClass[d.status]}">${statusShort[d.status]}</span>
           <span class="prio ${prioClass[d.priority]||'p-med'}">${d.priority||'-'}</span>
+          <span class="badge ${statusClass[d.status]}">${statusShort[d.status]}</span>
         </div>
         <div class="desc" style="font-size:14px;font-weight:600;margin-bottom:4px;">${esc(d.description)}</div>
         <div class="meta" style="font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:10px;">
@@ -1908,8 +1911,8 @@ function renderList(){
           <div class="sub-body">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;flex-wrap:wrap;">
               <span class="def-num">${di+1}.</span>${catBadge}
-              <span class="badge ${statusClass[d.status]}">${statusShort[d.status]}</span>
               <span class="prio ${prioClass[d.priority]||'p-med'}">${d.priority||'-'}</span>
+              <span class="badge ${statusClass[d.status]}">${statusShort[d.status]}</span>
             </div>
             <div class="desc">${esc(d.description)}</div>
             ${d.date_target?`<div class="meta"><span style="${late?'color:var(--open);font-weight:700;':''}">🎯 Target: ${fmtDate(d.date_target)}${late?' ⚠️ Telat':''}</span></div>`:'<div class="meta"><span style="color:var(--muted2);">🎯 Target belum diisi</span></div>'}
