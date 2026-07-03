@@ -1893,7 +1893,7 @@ function renderList(){
     const arr=parsePhotos(val);
     if(arr.length){
       const more = arr.length>1 ? `<span class="ph-count">+${arr.length-1}</span>` : '';
-      return `<div class="ph" onclick="event.stopPropagation();openGallery(${JSON.stringify(arr).replace(/"/g,'&quot;')},0,'${label} — '+${JSON.stringify(d.location)})"><img src="${arr[0]}" alt="${label}">${more}<span class="ph-label">${label}</span></div>`;
+      return `<div class="ph" onclick="event.stopPropagation();openGallery(${JSON.stringify(arr).replace(/"/g,'&quot;')},0,${JSON.stringify(label+' — '+d.location).replace(/"/g,'&quot;')})"><img src="${arr[0]}" alt="${label}">${more}<span class="ph-label">${label}</span></div>`;
     }
     return `<div class="ph empty"><span class="ph-icon">📷</span><span class="ph-label">${label}</span></div>`;
   };
