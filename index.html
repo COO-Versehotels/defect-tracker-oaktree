@@ -695,6 +695,7 @@ function closeLogModal(){ document.getElementById('logModal').classList.remove('
 async function loadLogs(){
   showLoading('Memuat log...');
   try{
+    await loadUserNameCache();
     const days=parseInt(document.getElementById('logFilterDays').value||'30',10);
     const sinceIso=new Date(Date.now()-days*86400000).toISOString();
     const {data,error}=await supa.from('activity_logs').select('*').eq('hotel',HOTEL).gte('created_at',sinceIso).order('created_at',{ascending:false}).limit(1000);
@@ -705,7 +706,7 @@ async function loadLogs(){
     const users=[...new Set(logsCache.map(l=>l.user_email))].sort();
     const sel=document.getElementById('logFilterUser');
     const cur=sel.value;
-    sel.innerHTML='<option value="">Semua User</option>'+users.map(u=>`<option value="${u}"${u===cur?' selected':''}>${u}</option>`).join('');
+    sel.innerHTML='<option value="">Semua User</option>'+users.map(u=>`<option value="${u}"${u===cur?' selected':''}>${esc(displayName(u))}</option>`).join('');
     renderLogs();
   }catch(e){ hideLoading(); showToast('Gagal memuat log: '+e.message); }
 }
@@ -889,6 +890,8 @@ async function saveUser(){
     closeUserForm();
     showToast(originalEmail?'✅ User diperbarui':'✅ User ditambahkan');
     await loadUsers();
+    await loadUserNameCache(); // refresh nama yang tampil di defect list & activity log juga
+    renderList(); // re-render supaya nama baru langsung kelihatan tanpa reload manual
   }catch(e){
     hideLoading();
     document.getElementById('ufSaveBtn').disabled=false;
