@@ -967,29 +967,33 @@ function onRoomSelect(){
 }
 
 // ===== LOGIN =====
-async function doLogin(){
-  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+async function loginWithEmail(email){
   const errEl = document.getElementById('loginErr');
   errEl.style.display='none';
-  if(!email){ errEl.textContent='Email wajib diisi'; errEl.style.display='block'; return; }
+  if(!email){ errEl.textContent='Email wajib diisi'; errEl.style.display='block'; return false; }
   showLoading('Memeriksa akses...');
   try{
     const {data, error} = await supa.from('defect_users').select('email,role,name,division,hotels').eq('email', email).maybeSingle();
     hideLoading();
-    if(error){ errEl.textContent='Koneksi gagal: '+error.message; errEl.style.display='block'; return; }
-    if(!data){ errEl.textContent='Email tidak terdaftar. Hubungi COO.'; errEl.style.display='block'; return; }
+    if(error){ errEl.textContent='Koneksi gagal: '+error.message; errEl.style.display='block'; return false; }
+    if(!data){ errEl.textContent='Email tidak terdaftar. Hubungi COO.'; errEl.style.display='block'; return false; }
     // Cek akses hotel
     const userHotels = data.hotels || [];
     if(!userHotels.includes(HOTEL)){
       errEl.textContent='⛔ Akun Anda tidak memiliki akses ke '+HOTEL+'. Hubungi COO.';
       errEl.style.display='block';
-      return;
+      return false;
     }
     currentUser = data;
     localStorage.setItem('defect_user_email', email);
     enterApp();
     logActivity('login', {detail:'Login dari email '+email});
-  }catch(e){ hideLoading(); errEl.textContent='Error: '+e.message; errEl.style.display='block'; }
+    return true;
+  }catch(e){ hideLoading(); errEl.textContent='Error: '+e.message; errEl.style.display='block'; return false; }
+}
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  await loginWithEmail(email);
 }
 function doLogout(){
   localStorage.removeItem('defect_user_email');
@@ -2006,6 +2010,16 @@ function showLoading(txt){ document.getElementById('loadingText').textContent=tx
 function hideLoading(){ document.getElementById('loadingOverlay').classList.remove('show'); }
 
 window.addEventListener('load', async ()=>{
+  // SSO: opened from Defect Command Center with a pre-verified email → auto login, no typing needed
+  const urlParams = new URLSearchParams(window.location.search);
+  const ssoEmail = urlParams.get('sso_email');
+  if(ssoEmail){
+    // Clean the URL so the email doesn't linger in history/address bar
+    window.history.replaceState({}, document.title, window.location.pathname);
+    const ok = await loginWithEmail(ssoEmail.trim().toLowerCase());
+    if(ok) return;
+    // If SSO login failed (e.g. not registered here), fall through to normal saved-session check below
+  }
   const saved=localStorage.getItem('defect_user_email');
   if(saved){
     showLoading('Masuk...');
