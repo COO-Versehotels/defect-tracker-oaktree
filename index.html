@@ -1737,7 +1737,7 @@ async function saveMaterialItems(){
       if(error) throw new Error(error.message);
     }
     // Sinkron pending_type di defect: 'Material' kalau masih ada barang, null kalau kosong semua
-    await supa.from('defects').update({pending_type: matItems.length>0?'Material':null}).eq('id',currentMaterialDefectId);
+    await supa.from('defects').update({pending_type: matItems.length>0?'Material':null, updated_by: currentUser.email, updated_at: new Date().toISOString()}).eq('id',currentMaterialDefectId);
     logActivity('update_status', {defectId:currentMaterialDefectId, detail:'Update kebutuhan barang ('+matItems.length+' item)'});
     hideLoading();
     document.getElementById('matSaveBtn').disabled=false;
