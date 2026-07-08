@@ -1582,7 +1582,7 @@ async function saveUpdate(){
 
 // ===== MATERIAL ITEMS (Kebutuhan Barang — integrasi Purchasing) =====
 let currentMaterialDefectId = null;
-let matItems = [];        // {id, nama_barang, jumlah, satuan, status_pr, tanggal_pengajuan_pr, status_purchasing, tanggal_tiba, _key}
+let matItems = [];        // {id, nama_barang, jumlah, satuan, status_pr, tanggal_pengajuan_pr, status_purchasing, tanggal_tiba, alasan_ditolak, created_by, created_at, updated_by, updated_at, _key}
 let matDeletedIds = [];
 let matKeyCounter = 0;
 
@@ -1599,7 +1599,8 @@ function newMaterialItem(){
   return {
     id:null, nama_barang:'', jumlah:'', satuan:'',
     status_pr:'Belum Dibuat', tanggal_pengajuan_pr:'',
-    status_purchasing:'Menunggu Approval', tanggal_tiba:'',
+    status_purchasing:'Menunggu Approval', tanggal_tiba:'', alasan_ditolak:'',
+    created_by:null, created_at:null, updated_by:null, updated_at:null,
     _key:'m'+(++matKeyCounter)
   };
 }
@@ -1620,6 +1621,9 @@ async function openMaterialModal(defectId){
       nama_barang:r.nama_barang||'', jumlah:(r.jumlah===null||r.jumlah===undefined)?'':r.jumlah, satuan:r.satuan||'',
       status_pr:r.status_pr||'Belum Dibuat', tanggal_pengajuan_pr:r.tanggal_pengajuan_pr||'',
       status_purchasing:r.status_purchasing||'Menunggu Approval', tanggal_tiba:r.tanggal_tiba||'',
+      alasan_ditolak:r.alasan_ditolak||'',
+      created_by:r.created_by||null, created_at:r.created_at||null,
+      updated_by:r.updated_by||null, updated_at:r.updated_at||null,
       _key:'m'+(++matKeyCounter)
     }));
     if(matItems.length===0 && canEditMaterialPR()) matItems.push(newMaterialItem());
@@ -1639,6 +1643,18 @@ function removeMaterialItemRow(key){
 }
 function matField(key, field, val){ const it=matItems.find(x=>x._key===key); if(it) it[field]=val; }
 function matPickField(key, field, val){ matField(key, field, val); renderMaterialItems(); }
+
+// Jejak siapa & kapan terakhir barang ini diajukan/diupdate (dipakai di kartu barang)
+function renderMatByline(it){
+  const created = it.created_by ? `<span>📝 Diajukan oleh <b>${esc(displayName(it.created_by))}</b>${it.created_at?' · '+fmtLogTime(it.created_at):''}</span>` : '';
+  let updated='';
+  if(it.updated_by && it.updated_at){
+    const isJustCreated = it.created_by===it.updated_by && it.created_at===it.updated_at;
+    if(!isJustCreated) updated = `<span>🔄 Update oleh <b>${esc(displayName(it.updated_by))}</b> · ${fmtLogTime(it.updated_at)}</span>`;
+  }
+  if(!created && !updated) return '';
+  return `<div class="byline" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">${created}${updated}</div>`;
+}
 
 function renderMaterialItems(){
   const canPR=canEditMaterialPR();
@@ -1667,10 +1683,13 @@ function renderMaterialItems(){
       ${segHtml(it,'status_pr',PR_OPTS,canPR)}
       ${it.status_pr==='Sudah Dibuat'?`<label class="fld">Tanggal Pengajuan PR</label>
         <input type="date" class="inp" ${canPR?'':'disabled'} value="${it.tanggal_pengajuan_pr||''}" onchange="matField('${it._key}','tanggal_pengajuan_pr',this.value)">`:''}
-      <label class="fld" style="margin-top:10px;">Status Purchasing</label>
+      <label class="fld" style="margin-top:10px;">Status Purchasing ${canPurch?'':'<span class="opt-tag">(hanya divisi Purchasing/Admin)</span>'}</label>
       ${segHtml(it,'status_purchasing',PURCH_OPTS,canPurch)}
+      ${it.status_purchasing==='Ditolak'?`<label class="fld">Alasan Ditolak <span style="color:var(--open);">*wajib</span></label>
+        <textarea class="inp" ${canPurch?'':'disabled'} oninput="matField('${it._key}','alasan_ditolak',this.value)" placeholder="Jelaskan alasan penolakan...">${esc(it.alasan_ditolak)}</textarea>`:''}
       ${it.status_purchasing==='Barang Sudah Tiba'?`<label class="fld">Tanggal Tiba</label>
         <input type="date" class="inp" ${canPurch?'':'disabled'} value="${it.tanggal_tiba||''}" onchange="matField('${it._key}','tanggal_tiba',this.value)">`:''}
+      ${it.id?renderMatByline(it):''}
     </div>`).join('');
   }
   document.getElementById('matAddBtn').style.display = canPR? 'block':'none';
@@ -1685,6 +1704,7 @@ async function saveMaterialItems(){
     if(!it.nama_barang || !it.nama_barang.trim()){ showToast('Nama barang wajib diisi untuk semua baris'); return; }
     if(it.status_pr==='Sudah Dibuat' && !it.tanggal_pengajuan_pr){ showToast('Isi tanggal pengajuan PR untuk: '+it.nama_barang); return; }
     if(it.status_purchasing==='Barang Sudah Tiba' && !it.tanggal_tiba){ showToast('Isi tanggal tiba untuk: '+it.nama_barang); return; }
+    if(it.status_purchasing==='Ditolak' && (!it.alasan_ditolak || !it.alasan_ditolak.trim())){ showToast('Isi alasan ditolak untuk: '+it.nama_barang); return; }
   }
   document.getElementById('matSaveBtn').disabled=true;
   showLoading('Menyimpan kebutuhan barang...');
@@ -1699,6 +1719,7 @@ async function saveMaterialItems(){
         tanggal_pengajuan_pr: it.status_pr==='Sudah Dibuat' ? (it.tanggal_pengajuan_pr||null) : null,
         status_purchasing: it.status_purchasing,
         tanggal_tiba: it.status_purchasing==='Barang Sudah Tiba' ? (it.tanggal_tiba||null) : null,
+        alasan_ditolak: it.status_purchasing==='Ditolak' ? (it.alasan_ditolak||'').trim() : null,
         updated_by: currentUser.email,
         updated_at: new Date().toISOString()
       };
