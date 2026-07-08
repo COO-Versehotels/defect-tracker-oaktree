@@ -642,6 +642,7 @@ const PUBLIC_AREAS = [
 const FB_AREAS = ['Resto Area','Bar Counter Area','Kitchen Area','Back Area','Store Kitchen Basement'];
 
 let defects = [];
+let materialSummary = {}; // {defect_id: [{nama_barang, jumlah, satuan}]} - buat tampilkan kebutuhan barang langsung di kartu
 let currentArea = 'all';
 let currentCat = 'all';
 let currentStatusFilter = null;
@@ -1589,6 +1590,8 @@ let matKeyCounter = 0;
 const PR_OPTS=[{v:'Belum Dibuat',l:'Belum Dibuat'},{v:'Sudah Dibuat',l:'Sudah Dibuat'}];
 const PURCH_OPTS=[
   {v:'Menunggu Approval',l:'Menunggu Approval'},
+  {v:'Menunggu Penawaran Harga',l:'Menunggu Penawaran Harga'},
+  {v:'Menunggu Pembayaran',l:'Menunggu Pembayaran'},
   {v:'Ditolak',l:'Ditolak'},
   {v:'Open PO',l:'Open PO'},
   {v:'Pengiriman',l:'Pengiriman'},
@@ -1757,11 +1760,26 @@ async function loadDefects(manual){
     defects=data||[];
     // Kompatibilitas: data lama "Pending Part/Vendor" → "Pending"
     defects.forEach(d=>{ if(d.status==='Pending Part/Vendor') d.status='Pending'; });
+    await loadMaterialSummary();
     renderStats(); renderList();
     if(currentTab==='rooms') renderRoomsView();
     if(currentTab==='public') renderSubAreaView('Public Area');
     if(currentTab==='fb') renderSubAreaView('F&B');
   }catch(e){ showToast('Gagal memuat: '+e.message); }
+}
+// Ambil nama barang untuk semua defect Pending sekaligus (1 query), biar bisa tampil langsung di kartu
+async function loadMaterialSummary(){
+  materialSummary={};
+  const ids = defects.filter(d=>d.status==='Pending' && d.pending_type==='Material').map(d=>d.id);
+  if(ids.length===0) return;
+  try{
+    const {data,error}=await supa.from('defect_material_items').select('defect_id,nama_barang,jumlah,satuan').in('defect_id',ids).order('created_at',{ascending:true});
+    if(error) throw new Error(error.message);
+    (data||[]).forEach(r=>{
+      if(!materialSummary[r.defect_id]) materialSummary[r.defect_id]=[];
+      materialSummary[r.defect_id].push(r);
+    });
+  }catch(e){ console.warn('Gagal memuat ringkasan barang:', e.message); }
 }
 function renderStats(){
   const c={Open:0,'In Progress':0,'Pending':0,Done:0};
@@ -2147,6 +2165,7 @@ function renderList(){
           </div>
         </div>
         ${d.status==='Pending' && d.pending_reason ? `<div class="pending-banner">🟣 <b>Pending:</b> ${esc(d.pending_reason)}${d.pending_type==='Material'?' <span class="cat-badge" style="background:rgba(59,130,246,0.15);color:#93c5fd;">📦 Butuh Barang</span>':''}</div>` : ''}
+        ${matSummaryLine(d)}
         ${d.status==='Done' && d.done_by ? `<div class="done-banner">🟢 <b>Selesai oleh:</b> ${esc(d.done_by)}</div>` : ''}
         <div class="photo-strip">
           ${photoCell(d,d.photo_defect,'Defect','defect')}
@@ -2179,6 +2198,17 @@ function renderList(){
     </div>`;
   }).join('');
 }
+// Ringkasan nama barang, ditampilkan langsung di kartu (tanpa perlu buka modal)
+function matSummaryLine(d){
+  const items = materialSummary[d.id];
+  if(!items || items.length===0) return '';
+  const txt = items.map(it=>{
+    const qty = it.jumlah ? ` (${it.jumlah}${it.satuan?' '+esc(it.satuan):''})` : '';
+    return esc(it.nama_barang)+qty;
+  }).join(', ');
+  return `<div class="pending-banner" style="margin-top:-6px;background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.25);color:#93c5fd;">📦 <b>Kebutuhan Barang:</b> ${txt}</div>`;
+}
+
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function fmtDate(s){ if(!s) return ''; const d=new Date(s+'T00:00:00'); return d.toLocaleDateString('id-ID',{day:'numeric',month:'short'}); }
 function setAreaFilter(area){ currentArea=area; document.querySelectorAll('#areaFilters .chip').forEach(c=>c.classList.toggle('active',c.dataset.area===area)); renderList(); }
