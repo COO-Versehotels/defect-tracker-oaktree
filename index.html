@@ -1008,16 +1008,25 @@ async function ssoDirectLogin(email, ccRole, ccName){
   if (ccRole === 'Admin') mappedRole = 'admin';
   else if (ccRole === 'Corporate-Editor' || ccRole === 'CEO') mappedRole = 'editor';
   const displayNameVal = ccName || email.split('@')[0];
-  currentUser = { email, name: displayNameVal, role: mappedRole, division: 'ALL', hotels: [HOTEL] };
+  // Pertahankan divisi kustom (mis. Purchasing) yang sudah di-set manual lewat Manage User
+  // di app unit ini, supaya login via Command Center TIDAK menimpanya balik ke 'ALL'.
+  let divisionToUse = 'ALL';
+  let mergedHotels = [HOTEL];
+  try {
+    const { data: existing } = await supa.from('defect_users').select('division,hotels').eq('email', email).maybeSingle();
+    if (existing) {
+      if (existing.division && existing.division !== 'ALL') divisionToUse = existing.division;
+      mergedHotels = Array.from(new Set([...(existing.hotels || []), HOTEL]));
+    }
+  } catch(e) { console.warn('[SSO] could not check existing division:', e.message); }
+  currentUser = { email, name: displayNameVal, role: mappedRole, division: divisionToUse, hotels: mergedHotels };
   localStorage.setItem('defect_user_email', email);
   // Persist into defect_users so the name/role show correctly in History & Log
   // for EVERYONE viewing later, not just this session. Merge hotel access
   // (rather than overwrite) in case this email was already separately
   // registered here with access to other hotels too.
   try {
-    const { data: existing } = await supa.from('defect_users').select('hotels').eq('email', email).maybeSingle();
-    const mergedHotels = Array.from(new Set([...(existing && existing.hotels ? existing.hotels : []), HOTEL]));
-    await supa.from('defect_users').upsert({ email, name: displayNameVal, role: mappedRole, division: 'ALL', hotels: mergedHotels });
+    await supa.from('defect_users').upsert({ email, name: displayNameVal, role: mappedRole, division: divisionToUse, hotels: mergedHotels });
     userNameCache[email] = displayNameVal;
   } catch(e) { console.warn('[SSO] could not persist to defect_users:', e.message); }
   await enterApp();
