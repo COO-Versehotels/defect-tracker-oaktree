@@ -39,6 +39,7 @@
   .topbar .brand .tt .hotel{font-size:11px;color:var(--accent2);font-weight:600;}
   .topbar .acts{display:flex;gap:8px;flex-shrink:0;}
   .icon-btn{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+  .icon-btn.notif-on{background:#22c55e33;border-color:#22c55e;}
   .icon-btn:hover{background:var(--card2);border-color:var(--line2);}
   .role-pill{font-size:10px;font-weight:700;padding:5px 10px;border-radius:8px;background:var(--card2);color:var(--accent2);border:1px solid var(--line2);text-transform:uppercase;letter-spacing:0.4px;align-self:center;}
   .container{max-width:760px;margin:0 auto;padding:18px;}
@@ -305,6 +306,7 @@
     </div>
     <div class="acts">
       <span class="role-pill" id="rolePill">—</span>
+      <button class="icon-btn" id="notifBtnTop" onclick="toggleNotifications()" title="Notifikasi Real-time">🔔</button>
       <button class="icon-btn" onclick="loadDefects(true)" title="Refresh">↻</button>
       <button class="icon-btn" onclick="waRecap()" title="WhatsApp Recap">💬</button>
       <button class="icon-btn" id="logBtnTop" onclick="openLogModal()" title="Log Activity" style="display:none;">📜</button>
@@ -490,20 +492,6 @@
   </div>
 </div>
 
-<!-- Material Items Modal (Kebutuhan Barang - HM isi PR, Purchasing update status) -->
-<div class="modal-bg" id="materialModal" onclick="if(event.target===this)closeMaterialModal()">
-  <div class="modal" style="max-width:560px;">
-    <div class="modal-head"><h2>📦 Kebutuhan Barang</h2><button class="icon-btn" onclick="closeMaterialModal()">✕</button></div>
-    <div class="modal-body">
-      <div class="upd-info" id="matInfo"></div>
-      <div id="matItemsList"></div>
-      <button class="btn-ghost" id="matAddBtn" onclick="addMaterialItemRow()" style="margin-top:8px;">➕ Tambah Barang</button>
-      <button class="btn-primary" id="matSaveBtn" onclick="saveMaterialItems()" style="margin-top:18px;">💾 Simpan</button>
-      <button class="btn-ghost" onclick="closeMaterialModal()">Batal</button>
-    </div>
-  </div>
-</div>
-
 <!-- Log Activity Modal (Admin only) -->
 <div class="modal-bg" id="logModal" onclick="if(event.target===this)closeLogModal()">
   <div class="modal" style="max-width:680px;">
@@ -586,15 +574,14 @@
         <div class="seg-opt" data-g="urole" data-v="viewer" onclick="ufPick(this)">👁️ Viewer</div>
       </div>
       <label class="fld">Divisi</label>
-      <div class="seg" id="ufSegDivision" style="grid-template-columns:1fr 1fr;">
+      <div class="seg" id="ufSegDivision" style="grid-template-columns:1fr 1fr 1fr;">
         <div class="seg-opt" data-g="udiv" data-v="ALL" onclick="ufPick(this)">🌐 ALL</div>
         <div class="seg-opt" data-g="udiv" data-v="HK" onclick="ufPick(this)">🧹 HK</div>
         <div class="seg-opt" data-g="udiv" data-v="ENG" onclick="ufPick(this)">🔧 ENG</div>
-        <div class="seg-opt" data-g="udiv" data-v="Purchasing" onclick="ufPick(this)">📦 Purchasing</div>
       </div>
       <div class="hint-txt" style="margin-bottom:14px;">
         <b>Role:</b> Admin = COO (akses penuh + hapus). Editor = bisa CRUD defect. Viewer = lihat saja.<br>
-        <b>Divisi:</b> ALL = bebas semua kategori. HK = hanya Housekeeping. ENG = hanya Engineering. <b>Purchasing</b> = tetap bisa lihat semua defect, tapi hanya bisa update status kebutuhan barang (di tombol 📦), tidak bisa ubah status/kategori defect.
+        <b>Divisi:</b> ALL = bebas semua kategori. HK = hanya Housekeeping. ENG = hanya Engineering.
       </div>
       <label class="fld">Akses Hotel</label>
       <div id="ufHotelsBox" class="hotel-checks">
@@ -642,7 +629,6 @@ const PUBLIC_AREAS = [
 const FB_AREAS = ['Resto Area','Bar Counter Area','Kitchen Area','Back Area','Store Kitchen Basement'];
 
 let defects = [];
-let materialSummary = {}; // {defect_id: [{nama_barang, jumlah, satuan}]} - buat tampilkan kebutuhan barang langsung di kartu
 let currentArea = 'all';
 let currentCat = 'all';
 let currentStatusFilter = null;
@@ -667,7 +653,7 @@ function canEdit(){ return currentUser && (currentUser.role==='admin' || current
 function userDivision(){
   if(!currentUser) return null;
   // Utamakan nilai dari database
-  if(currentUser.division && ['HK','ENG','ALL','Purchasing'].includes(currentUser.division)) return currentUser.division;
+  if(currentUser.division && ['HK','ENG','ALL'].includes(currentUser.division)) return currentUser.division;
   // Fallback (kalau kolom division belum di-set): tebak dari email
   const e = (currentUser.email||'').toLowerCase();
   if(e.includes('ehk')) return 'HK';
@@ -678,17 +664,8 @@ function userDivision(){
 function canEditCategory(cat){
   if(!canEdit()) return false;
   const div = userDivision();
-  if(div==='Purchasing') return false; // Purchasing tidak boleh ubah status/kategori defect, hanya kebutuhan barang
   if(div==='ALL') return true;
   return div === cat; // EHK hanya HK, CE hanya ENG
-}
-// Purchasing (atau admin) boleh update status pembelian barang?
-function canManageMaterial(){
-  return !!currentUser && (currentUser.role==='admin' || userDivision()==='Purchasing');
-}
-// HM/Editor (bukan divisi Purchasing) boleh isi/ubah detail PR barang?
-function canEditMaterialPR(){
-  return !!currentUser && (currentUser.role==='admin' || (canEdit() && userDivision()!=='Purchasing'));
 }
 
 // ===== ACTIVITY LOGGING =====
@@ -1008,25 +985,16 @@ async function ssoDirectLogin(email, ccRole, ccName){
   if (ccRole === 'Admin') mappedRole = 'admin';
   else if (ccRole === 'Corporate-Editor' || ccRole === 'CEO') mappedRole = 'editor';
   const displayNameVal = ccName || email.split('@')[0];
-  // Pertahankan divisi kustom (mis. Purchasing) yang sudah di-set manual lewat Manage User
-  // di app unit ini, supaya login via Command Center TIDAK menimpanya balik ke 'ALL'.
-  let divisionToUse = 'ALL';
-  let mergedHotels = [HOTEL];
-  try {
-    const { data: existing } = await supa.from('defect_users').select('division,hotels').eq('email', email).maybeSingle();
-    if (existing) {
-      if (existing.division && existing.division !== 'ALL') divisionToUse = existing.division;
-      mergedHotels = Array.from(new Set([...(existing.hotels || []), HOTEL]));
-    }
-  } catch(e) { console.warn('[SSO] could not check existing division:', e.message); }
-  currentUser = { email, name: displayNameVal, role: mappedRole, division: divisionToUse, hotels: mergedHotels };
+  currentUser = { email, name: displayNameVal, role: mappedRole, division: 'ALL', hotels: [HOTEL] };
   localStorage.setItem('defect_user_email', email);
   // Persist into defect_users so the name/role show correctly in History & Log
   // for EVERYONE viewing later, not just this session. Merge hotel access
   // (rather than overwrite) in case this email was already separately
   // registered here with access to other hotels too.
   try {
-    await supa.from('defect_users').upsert({ email, name: displayNameVal, role: mappedRole, division: divisionToUse, hotels: mergedHotels });
+    const { data: existing } = await supa.from('defect_users').select('hotels').eq('email', email).maybeSingle();
+    const mergedHotels = Array.from(new Set([...(existing && existing.hotels ? existing.hotels : []), HOTEL]));
+    await supa.from('defect_users').upsert({ email, name: displayNameVal, role: mappedRole, division: 'ALL', hotels: mergedHotels });
     userNameCache[email] = displayNameVal;
   } catch(e) { console.warn('[SSO] could not persist to defect_users:', e.message); }
   await enterApp();
@@ -1102,7 +1070,75 @@ async function enterApp(){
   document.getElementById('userBtnTop').style.display = currentUser.role==='admin' ? 'flex' : 'none';
   document.getElementById('cmdCenterBtnTop').style.display = sessionStorage.getItem('via_command_center')==='1' ? 'inline-flex' : 'none';
   buildRoomDropdown();
+  checkNotifPermission();
   await loadDefects();
+}
+
+// ============================================================
+// REAL-TIME NOTIFICATIONS (Supabase Realtime, works while app is open)
+// ============================================================
+let realtimeChannel = null;
+
+function checkNotifPermission(){
+  const btn = document.getElementById('notifBtnTop');
+  if(!btn) return;
+  if(!('Notification' in window)){ btn.style.display='none'; return; }
+  const on = Notification.permission==='granted' && localStorage.getItem('notif_enabled')==='1';
+  btn.classList.toggle('notif-on', on);
+  if(on) setupRealtimeNotifications();
+}
+
+function toggleNotifications(){
+  if(!('Notification' in window)){ showToast('Browser tidak mendukung notifikasi'); return; }
+  const btn = document.getElementById('notifBtnTop');
+  const currentlyOn = btn.classList.contains('notif-on');
+  if(currentlyOn){
+    localStorage.setItem('notif_enabled','0');
+    btn.classList.remove('notif-on');
+    if(realtimeChannel){ supa.removeChannel(realtimeChannel); realtimeChannel=null; }
+    showToast('Notifikasi real-time dimatikan');
+    return;
+  }
+  Notification.requestPermission().then(perm=>{
+    if(perm==='granted'){
+      localStorage.setItem('notif_enabled','1');
+      btn.classList.add('notif-on');
+      new Notification('Defect Tracker '+HOTEL, { body:'Notifikasi real-time aktif \ud83d\udd14' });
+      setupRealtimeNotifications();
+      showToast('\u2705 Notifikasi real-time aktif — biarkan tab ini tetap terbuka');
+    } else {
+      showToast('Izin notifikasi ditolak. Cek pengaturan browser.');
+    }
+  });
+}
+
+function setupRealtimeNotifications(){
+  if(realtimeChannel) return; // sudah jalan
+  realtimeChannel = supa.channel('defects-notify-'+HOTEL)
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'defects', filter:`hotel=eq.${HOTEL}` }, payload=>{
+      const d = payload.new;
+      if(d.created_by === currentUser?.email) { loadDefects(); return; } // aksi sendiri, jangan notif diri sendiri
+      const label = d.location ? (d.description+' — '+d.location) : (d.description||'Defect baru');
+      notifyUser('\ud83c\udd95 Defect Baru', label);
+      loadDefects();
+    })
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'defects', filter:`hotel=eq.${HOTEL}` }, payload=>{
+      const oldD = payload.old, newD = payload.new;
+      if(newD.updated_by === currentUser?.email) { loadDefects(); return; } // aksi sendiri
+      if(oldD && newD && oldD.status !== newD.status){
+        const label = (newD.description||'Defect')+' \u2192 '+newD.status;
+        notifyUser('\ud83d\udd04 Status Berubah', label);
+      }
+      loadDefects();
+    })
+    .subscribe();
+}
+
+function notifyUser(title, body){
+  showToast(title+': '+body);
+  if('Notification' in window && Notification.permission==='granted'){
+    try{ new Notification(title+' — '+HOTEL, { body }); }catch(e){}
+  }
 }
 
 // ===== IMAGE =====
@@ -1590,175 +1626,6 @@ async function saveUpdate(){
   }catch(e){ hideLoading(); document.getElementById('updSaveBtn').disabled=false; showToast('Gagal: '+e.message); }
 }
 
-// ===== MATERIAL ITEMS (Kebutuhan Barang — integrasi Purchasing) =====
-let currentMaterialDefectId = null;
-let matItems = [];        // {id, nama_barang, jumlah, satuan, status_pr, tanggal_pengajuan_pr, status_purchasing, tanggal_tiba, alasan_ditolak, created_by, created_at, updated_by, updated_at, _key}
-let matDeletedIds = [];
-let matKeyCounter = 0;
-
-const PR_OPTS=[{v:'Belum Dibuat',l:'Belum Dibuat'},{v:'Sudah Dibuat',l:'Sudah Dibuat'}];
-const PURCH_OPTS=[
-  {v:'Menunggu Approval',l:'Menunggu Approval'},
-  {v:'Menunggu Penawaran Harga',l:'Menunggu Penawaran Harga'},
-  {v:'Menunggu Pembayaran',l:'Menunggu Pembayaran'},
-  {v:'Ditolak',l:'Ditolak'},
-  {v:'Open PO',l:'Open PO'},
-  {v:'Pengiriman',l:'Pengiriman'},
-  {v:'Barang Sudah Tiba',l:'Barang Sudah Tiba'}
-];
-
-function newMaterialItem(){
-  return {
-    id:null, nama_barang:'', jumlah:'', satuan:'',
-    status_pr:'Belum Dibuat', tanggal_pengajuan_pr:'',
-    status_purchasing:'Menunggu Approval', tanggal_tiba:'', alasan_ditolak:'',
-    created_by:null, created_at:null, updated_by:null, updated_at:null,
-    _key:'m'+(++matKeyCounter)
-  };
-}
-
-async function openMaterialModal(defectId){
-  const d=defects.find(x=>x.id===defectId); if(!d) return;
-  if(!currentUser){ showToast('Silakan login dulu'); return; }
-  currentMaterialDefectId=defectId;
-  matDeletedIds=[];
-  document.getElementById('matInfo').innerHTML=`<div class="ui-loc">📍 ${esc(d.location)}</div><div class="ui-desc">${esc(d.description)}</div>`;
-  showLoading('Memuat kebutuhan barang...');
-  try{
-    const {data,error}=await supa.from('defect_material_items').select('*').eq('defect_id',defectId).order('created_at',{ascending:true});
-    hideLoading();
-    if(error) throw new Error(error.message);
-    matItems=(data||[]).map(r=>({
-      id:r.id,
-      nama_barang:r.nama_barang||'', jumlah:(r.jumlah===null||r.jumlah===undefined)?'':r.jumlah, satuan:r.satuan||'',
-      status_pr:r.status_pr||'Belum Dibuat', tanggal_pengajuan_pr:r.tanggal_pengajuan_pr||'',
-      status_purchasing:r.status_purchasing||'Menunggu Approval', tanggal_tiba:r.tanggal_tiba||'',
-      alasan_ditolak:r.alasan_ditolak||'',
-      created_by:r.created_by||null, created_at:r.created_at||null,
-      updated_by:r.updated_by||null, updated_at:r.updated_at||null,
-      _key:'m'+(++matKeyCounter)
-    }));
-    if(matItems.length===0 && canEditMaterialPR()) matItems.push(newMaterialItem());
-    renderMaterialItems();
-    document.getElementById('materialModal').classList.add('show');
-  }catch(e){ hideLoading(); showToast('Gagal memuat kebutuhan barang: '+e.message); }
-}
-function closeMaterialModal(){ document.getElementById('materialModal').classList.remove('show'); }
-
-function addMaterialItemRow(){ matItems.push(newMaterialItem()); renderMaterialItems(); }
-function removeMaterialItemRow(key){
-  const it=matItems.find(x=>x._key===key); if(!it) return;
-  if(!confirm('Hapus barang ini dari daftar?')) return;
-  if(it.id) matDeletedIds.push(it.id);
-  matItems=matItems.filter(x=>x._key!==key);
-  renderMaterialItems();
-}
-function matField(key, field, val){ const it=matItems.find(x=>x._key===key); if(it) it[field]=val; }
-function matPickField(key, field, val){ matField(key, field, val); renderMaterialItems(); }
-
-// Jejak siapa & kapan terakhir barang ini diajukan/diupdate (dipakai di kartu barang)
-function renderMatByline(it){
-  const created = it.created_by ? `<span>📝 Diajukan oleh <b>${esc(displayName(it.created_by))}</b>${it.created_at?' · '+fmtLogTime(it.created_at):''}</span>` : '';
-  let updated='';
-  if(it.updated_by && it.updated_at){
-    const isJustCreated = it.created_by===it.updated_by && it.created_at===it.updated_at;
-    if(!isJustCreated) updated = `<span>🔄 Update oleh <b>${esc(displayName(it.updated_by))}</b> · ${fmtLogTime(it.updated_at)}</span>`;
-  }
-  if(!created && !updated) return '';
-  return `<div class="byline" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">${created}${updated}</div>`;
-}
-
-function renderMaterialItems(){
-  const canPR=canEditMaterialPR();
-  const canPurch=canManageMaterial();
-  const cont=document.getElementById('matItemsList');
-  if(matItems.length===0){
-    cont.innerHTML='<div class="hint-txt">Belum ada barang. '+(canPR?'Tap "Tambah Barang" untuk mulai.':'Menunggu HM mengisi kebutuhan barang.')+'</div>';
-  } else {
-    const segHtml=(it,group,opts,editable)=>{
-      const val=it[group];
-      return `<div class="seg ${opts.length>2?'cols4':''}" style="${opts.length===2?'grid-template-columns:1fr 1fr;':''}${editable?'':'opacity:0.5;pointer-events:none;'}">`+
-        opts.map(o=>`<div class="seg-opt ${val===o.v?'active':''}" onclick="${editable?`matPickField('${it._key}','${group}','${o.v}')`:''}">${o.l}</div>`).join('')+`</div>`;
-    };
-    cont.innerHTML = matItems.map((it,i)=>`<div class="defect-item-card" style="margin-bottom:12px;">
-      <div class="di-head"><span class="di-num">Barang #${i+1}</span>
-      ${canPR?`<button class="di-remove" onclick="removeMaterialItemRow('${it._key}')">🗑️</button>`:''}</div>
-      <label class="fld">Nama Barang</label>
-      <input class="inp" ${canPR?'':'disabled'} value="${esc(it.nama_barang)}" oninput="matField('${it._key}','nama_barang',this.value)" placeholder="Contoh: Sparepart AC">
-      <div style="display:flex;gap:8px;">
-        <div style="flex:1;"><label class="fld">Jumlah</label>
-        <input type="number" class="inp" ${canPR?'':'disabled'} value="${it.jumlah}" oninput="matField('${it._key}','jumlah',this.value)"></div>
-        <div style="flex:1;"><label class="fld">Satuan</label>
-        <input class="inp" ${canPR?'':'disabled'} value="${esc(it.satuan)}" oninput="matField('${it._key}','satuan',this.value)" placeholder="pcs/meter/liter"></div>
-      </div>
-      <label class="fld">Status PR</label>
-      ${segHtml(it,'status_pr',PR_OPTS,canPR)}
-      ${it.status_pr==='Sudah Dibuat'?`<label class="fld">Tanggal Pengajuan PR</label>
-        <input type="date" class="inp" ${canPR?'':'disabled'} value="${it.tanggal_pengajuan_pr||''}" onchange="matField('${it._key}','tanggal_pengajuan_pr',this.value)">`:''}
-      <label class="fld" style="margin-top:10px;">Status Purchasing ${canPurch?'':'<span class="opt-tag">(hanya divisi Purchasing/Admin)</span>'}</label>
-      ${segHtml(it,'status_purchasing',PURCH_OPTS,canPurch)}
-      ${it.status_purchasing==='Ditolak'?`<label class="fld">Alasan Ditolak <span style="color:var(--open);">*wajib</span></label>
-        <textarea class="inp" ${canPurch?'':'disabled'} oninput="matField('${it._key}','alasan_ditolak',this.value)" placeholder="Jelaskan alasan penolakan...">${esc(it.alasan_ditolak)}</textarea>`:''}
-      ${it.status_purchasing==='Barang Sudah Tiba'?`<label class="fld">Tanggal Tiba</label>
-        <input type="date" class="inp" ${canPurch?'':'disabled'} value="${it.tanggal_tiba||''}" onchange="matField('${it._key}','tanggal_tiba',this.value)">`:''}
-      ${it.id?renderMatByline(it):''}
-    </div>`).join('');
-  }
-  document.getElementById('matAddBtn').style.display = canPR? 'block':'none';
-  document.getElementById('matSaveBtn').style.display = (canPR||canPurch) ? 'block':'none';
-}
-
-async function saveMaterialItems(){
-  if(!currentMaterialDefectId) return;
-  const canPR=canEditMaterialPR(), canPurch=canManageMaterial();
-  if(!canPR && !canPurch){ showToast('Tidak ada akses'); return; }
-  for(const it of matItems){
-    if(!it.nama_barang || !it.nama_barang.trim()){ showToast('Nama barang wajib diisi untuk semua baris'); return; }
-    if(it.status_pr==='Sudah Dibuat' && !it.tanggal_pengajuan_pr){ showToast('Isi tanggal pengajuan PR untuk: '+it.nama_barang); return; }
-    if(it.status_purchasing==='Barang Sudah Tiba' && !it.tanggal_tiba){ showToast('Isi tanggal tiba untuk: '+it.nama_barang); return; }
-    if(it.status_purchasing==='Ditolak' && (!it.alasan_ditolak || !it.alasan_ditolak.trim())){ showToast('Isi alasan ditolak untuk: '+it.nama_barang); return; }
-  }
-  document.getElementById('matSaveBtn').disabled=true;
-  showLoading('Menyimpan kebutuhan barang...');
-  try{
-    for(const it of matItems){
-      const row={
-        defect_id: currentMaterialDefectId,
-        nama_barang: it.nama_barang.trim(),
-        jumlah: (it.jumlah!==''&&it.jumlah!==null&&it.jumlah!==undefined) ? Number(it.jumlah) : null,
-        satuan: it.satuan?it.satuan.trim():null,
-        status_pr: it.status_pr,
-        tanggal_pengajuan_pr: it.status_pr==='Sudah Dibuat' ? (it.tanggal_pengajuan_pr||null) : null,
-        status_purchasing: it.status_purchasing,
-        tanggal_tiba: it.status_purchasing==='Barang Sudah Tiba' ? (it.tanggal_tiba||null) : null,
-        alasan_ditolak: it.status_purchasing==='Ditolak' ? (it.alasan_ditolak||'').trim() : null,
-        updated_by: currentUser.email,
-        updated_at: new Date().toISOString()
-      };
-      if(it.id){
-        const {error}=await supa.from('defect_material_items').update(row).eq('id',it.id);
-        if(error) throw new Error(error.message);
-      } else {
-        row.created_by=currentUser.email;
-        const {error}=await supa.from('defect_material_items').insert(row);
-        if(error) throw new Error(error.message);
-      }
-    }
-    for(const did of matDeletedIds){
-      const {error}=await supa.from('defect_material_items').delete().eq('id',did);
-      if(error) throw new Error(error.message);
-    }
-    // Sinkron pending_type di defect: 'Material' kalau masih ada barang, null kalau kosong semua
-    await supa.from('defects').update({pending_type: matItems.length>0?'Material':null, updated_by: currentUser.email, updated_at: new Date().toISOString()}).eq('id',currentMaterialDefectId);
-    logActivity('update_status', {defectId:currentMaterialDefectId, detail:'Update kebutuhan barang ('+matItems.length+' item)'});
-    hideLoading();
-    document.getElementById('matSaveBtn').disabled=false;
-    closeMaterialModal();
-    showToast('✅ Kebutuhan barang disimpan');
-    await loadDefects();
-  }catch(e){ hideLoading(); document.getElementById('matSaveBtn').disabled=false; showToast('Gagal: '+e.message); }
-}
-
 async function loadDefects(manual){
   if(manual) showToast('Menyegarkan...');
   try{
@@ -1769,26 +1636,11 @@ async function loadDefects(manual){
     defects=data||[];
     // Kompatibilitas: data lama "Pending Part/Vendor" → "Pending"
     defects.forEach(d=>{ if(d.status==='Pending Part/Vendor') d.status='Pending'; });
-    await loadMaterialSummary();
     renderStats(); renderList();
     if(currentTab==='rooms') renderRoomsView();
     if(currentTab==='public') renderSubAreaView('Public Area');
     if(currentTab==='fb') renderSubAreaView('F&B');
   }catch(e){ showToast('Gagal memuat: '+e.message); }
-}
-// Ambil nama barang untuk semua defect Pending sekaligus (1 query), biar bisa tampil langsung di kartu
-async function loadMaterialSummary(){
-  materialSummary={};
-  const ids = defects.filter(d=>d.status==='Pending' && d.pending_type==='Material').map(d=>d.id);
-  if(ids.length===0) return;
-  try{
-    const {data,error}=await supa.from('defect_material_items').select('defect_id,nama_barang,jumlah,satuan').in('defect_id',ids).order('created_at',{ascending:true});
-    if(error) throw new Error(error.message);
-    (data||[]).forEach(r=>{
-      if(!materialSummary[r.defect_id]) materialSummary[r.defect_id]=[];
-      materialSummary[r.defect_id].push(r);
-    });
-  }catch(e){ console.warn('Gagal memuat ringkasan barang:', e.message); }
 }
 function renderStats(){
   const c={Open:0,'In Progress':0,'Pending':0,Done:0};
@@ -2173,8 +2025,7 @@ function renderList(){
             ${d.date_target?`<div class="meta"><span style="${late?'color:var(--open);font-weight:700;':''}">🎯 Target: ${fmtDate(d.date_target)}${late?' ⚠️ Telat':''}</span></div>`:'<div class="meta"><span style="color:var(--muted2);">🎯 Target belum diisi</span></div>'}
           </div>
         </div>
-        ${d.status==='Pending' && d.pending_reason ? `<div class="pending-banner">🟣 <b>Pending:</b> ${esc(d.pending_reason)}${d.pending_type==='Material'?' <span class="cat-badge" style="background:rgba(59,130,246,0.15);color:#93c5fd;">📦 Butuh Barang</span>':''}</div>` : ''}
-        ${matSummaryLine(d)}
+        ${d.status==='Pending' && d.pending_reason ? `<div class="pending-banner">🟣 <b>Pending:</b> ${esc(d.pending_reason)}</div>` : ''}
         ${d.status==='Done' && d.done_by ? `<div class="done-banner">🟢 <b>Selesai oleh:</b> ${esc(d.done_by)}</div>` : ''}
         <div class="photo-strip">
           ${photoCell(d,d.photo_defect,'Defect','defect')}
@@ -2184,7 +2035,6 @@ function renderList(){
         ${bylineHtml(d)}
         <div class="defect-foot">
           <button class="foot-btn primary-ghost" onclick="openUpdateDefect('${d.id}')" ${catEditable?'':'disabled'} style="flex:3;">🛠️ Update Defect</button>
-          ${d.status==='Pending'?`<button class="foot-btn" onclick="event.stopPropagation();openMaterialModal('${d.id}')" title="Kebutuhan Barang" style="flex:2;font-size:11px;">📦 Kebutuhan Barang</button>`:''}
           ${currentUser&&currentUser.role==='admin'?`<button class="foot-btn" onclick="openHistory('${d.id}')" title="History">📜</button>`:''}
           ${currentUser&&currentUser.role==='admin'?`<button class="foot-btn danger" onclick="deleteDefect('${d.id}')">🗑️</button>`:''}
         </div>
@@ -2207,17 +2057,6 @@ function renderList(){
     </div>`;
   }).join('');
 }
-// Ringkasan nama barang, ditampilkan langsung di kartu (tanpa perlu buka modal)
-function matSummaryLine(d){
-  const items = materialSummary[d.id];
-  if(!items || items.length===0) return '';
-  const txt = items.map(it=>{
-    const qty = it.jumlah ? ` (${it.jumlah}${it.satuan?' '+esc(it.satuan):''})` : '';
-    return esc(it.nama_barang)+qty;
-  }).join(', ');
-  return `<div class="pending-banner" style="margin-top:-6px;background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.25);color:#93c5fd;">📦 <b>Kebutuhan Barang:</b> ${txt}</div>`;
-}
-
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function fmtDate(s){ if(!s) return ''; const d=new Date(s+'T00:00:00'); return d.toLocaleDateString('id-ID',{day:'numeric',month:'short'}); }
 function setAreaFilter(area){ currentArea=area; document.querySelectorAll('#areaFilters .chip').forEach(c=>c.classList.toggle('active',c.dataset.area===area)); renderList(); }
