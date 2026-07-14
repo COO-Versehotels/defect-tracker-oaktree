@@ -1671,6 +1671,9 @@ function renderMatByline(it){
 function renderMaterialItems(){
   const canPR=canEditMaterialPR();
   const canPurch=canManageMaterial();
+  // HM/Editor non-Purchasing boleh khusus tandai "Barang Sudah Tiba" (mereka yang fisik terima barang di hotel),
+  // status purchasing lainnya (Approval/PO/Pengiriman/dst) tetap murni domain Purchasing.
+  const canMarkArrived = canPR || canPurch;
   const cont=document.getElementById('matItemsList');
   if(matItems.length===0){
     cont.innerHTML='<div class="hint-txt">Belum ada barang. '+(canPR?'Tap "Tambah Barang" untuk mulai.':'Menunggu HM mengisi kebutuhan barang.')+'</div>';
@@ -1679,6 +1682,15 @@ function renderMaterialItems(){
       const val=it[group];
       return `<div class="seg ${opts.length>2?'cols4':''}" style="${opts.length===2?'grid-template-columns:1fr 1fr;':''}${editable?'':'opacity:0.5;pointer-events:none;'}">`+
         opts.map(o=>`<div class="seg-opt ${val===o.v?'active':''}" onclick="${editable?`matPickField('${it._key}','${group}','${o.v}')`:''}">${o.l}</div>`).join('')+`</div>`;
+    };
+    // Segmented control khusus Status Purchasing: per-opsi editability (semua opsi Purchasing-only, KECUALI "Barang Sudah Tiba")
+    const purchSegHtml=(it)=>{
+      const val=it.status_purchasing;
+      return `<div class="seg cols4">`+
+        PURCH_OPTS.map(o=>{
+          const editable = o.v==='Barang Sudah Tiba' ? canMarkArrived : canPurch;
+          return `<div class="seg-opt ${val===o.v?'active':''}" style="${editable?'':'opacity:0.5;pointer-events:none;'}" onclick="${editable?`matPickField('${it._key}','status_purchasing','${o.v}')`:''}">${o.l}</div>`;
+        }).join('')+`</div>`;
     };
     cont.innerHTML = matItems.map((it,i)=>`<div class="defect-item-card" style="margin-bottom:12px;">
       <div class="di-head"><span class="di-num">Barang #${i+1}</span>
@@ -1695,12 +1707,12 @@ function renderMaterialItems(){
       ${segHtml(it,'status_pr',PR_OPTS,canPR)}
       ${it.status_pr==='Sudah Dibuat'?`<label class="fld">Tanggal Pengajuan PR</label>
         <input type="date" class="inp" ${canPR?'':'disabled'} value="${it.tanggal_pengajuan_pr||''}" onchange="matField('${it._key}','tanggal_pengajuan_pr',this.value)">`:''}
-      <label class="fld" style="margin-top:10px;">Status Purchasing ${canPurch?'':'<span class="opt-tag">(hanya divisi Purchasing/Admin)</span>'}</label>
-      ${segHtml(it,'status_purchasing',PURCH_OPTS,canPurch)}
+      <label class="fld" style="margin-top:10px;">Status Purchasing ${canPurch?'':(canPR?'<span class="opt-tag">(HM/Corp cuma bisa tandai "Barang Sudah Tiba")</span>':'<span class="opt-tag">(hanya divisi Purchasing/Admin)</span>')}</label>
+      ${purchSegHtml(it)}
       ${it.status_purchasing==='Ditolak'?`<label class="fld">Alasan Ditolak <span style="color:var(--open);">*wajib</span></label>
         <textarea class="inp" ${canPurch?'':'disabled'} oninput="matField('${it._key}','alasan_ditolak',this.value)" placeholder="Jelaskan alasan penolakan...">${esc(it.alasan_ditolak)}</textarea>`:''}
       ${it.status_purchasing==='Barang Sudah Tiba'?`<label class="fld">Tanggal Tiba</label>
-        <input type="date" class="inp" ${canPurch?'':'disabled'} value="${it.tanggal_tiba||''}" onchange="matField('${it._key}','tanggal_tiba',this.value)">`:''}
+        <input type="date" class="inp" ${canMarkArrived?'':'disabled'} value="${it.tanggal_tiba||''}" onchange="matField('${it._key}','tanggal_tiba',this.value)">`:''}
       ${it.id?renderMatByline(it):''}
     </div>`).join('');
   }
@@ -1782,7 +1794,7 @@ async function loadMaterialSummary(){
   const ids = defects.filter(d=>d.status==='Pending' && d.pending_type==='Material').map(d=>d.id);
   if(ids.length===0) return;
   try{
-    const {data,error}=await supa.from('defect_material_items').select('defect_id,nama_barang,jumlah,satuan').in('defect_id',ids).order('created_at',{ascending:true});
+    const {data,error}=await supa.from('defect_material_items').select('defect_id,nama_barang,jumlah,satuan,status_purchasing,tanggal_tiba').in('defect_id',ids).order('created_at',{ascending:true});
     if(error) throw new Error(error.message);
     (data||[]).forEach(r=>{
       if(!materialSummary[r.defect_id]) materialSummary[r.defect_id]=[];
@@ -2173,7 +2185,7 @@ function renderList(){
             ${d.date_target?`<div class="meta"><span style="${late?'color:var(--open);font-weight:700;':''}">🎯 Target: ${fmtDate(d.date_target)}${late?' ⚠️ Telat':''}</span></div>`:'<div class="meta"><span style="color:var(--muted2);">🎯 Target belum diisi</span></div>'}
           </div>
         </div>
-        ${d.status==='Pending' && d.pending_reason ? `<div class="pending-banner">🟣 <b>Pending:</b> ${esc(d.pending_reason)}${d.pending_type==='Material'?' <span class="cat-badge" style="background:rgba(59,130,246,0.15);color:#93c5fd;">📦 Butuh Barang</span>':''}</div>` : ''}
+        ${d.status==='Pending' && d.pending_reason ? `<div class="pending-banner">🟣 <b>Pending:</b> ${esc(d.pending_reason)}</div>` : ''}
         ${matSummaryLine(d)}
         ${d.status==='Done' && d.done_by ? `<div class="done-banner">🟢 <b>Selesai oleh:</b> ${esc(d.done_by)}</div>` : ''}
         <div class="photo-strip">
@@ -2207,15 +2219,28 @@ function renderList(){
     </div>`;
   }).join('');
 }
-// Ringkasan nama barang, ditampilkan langsung di kartu (tanpa perlu buka modal)
+// Ringkasan kebutuhan barang, ditampilkan langsung di kartu (tanpa perlu buka modal).
+// Tiap barang tampil baris sendiri dengan status & tanggal tiba masing-masing
+// (karena barang A bisa sudah tiba sementara barang B masih diproses).
 function matSummaryLine(d){
   const items = materialSummary[d.id];
   if(!items || items.length===0) return '';
-  const txt = items.map(it=>{
+  const rows = items.map(it=>{
     const qty = it.jumlah ? ` (${it.jumlah}${it.satuan?' '+esc(it.satuan):''})` : '';
-    return esc(it.nama_barang)+qty;
-  }).join(', ');
-  return `<div class="pending-banner" style="margin-top:-6px;background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.25);color:#93c5fd;">📦 <b>Kebutuhan Barang:</b> ${txt}</div>`;
+    const status = it.status_purchasing || 'Menunggu Approval';
+    let bg='rgba(59,130,246,0.15)', color='#93c5fd';
+    if(status==='Barang Sudah Tiba'){ bg='rgba(34,197,94,0.15)'; color='#86efac'; }
+    else if(status==='Ditolak'){ bg='rgba(239,68,68,0.15)'; color='#fca5a5'; }
+    const tglTiba = (status==='Barang Sudah Tiba' && it.tanggal_tiba) ? ' · '+fmtDate(it.tanggal_tiba) : '';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:4px 0;">
+      <span>${esc(it.nama_barang)}${qty}</span>
+      <span class="cat-badge" style="background:${bg};color:${color};white-space:nowrap;">${esc(status)}${tglTiba}</span>
+    </div>`;
+  }).join('');
+  return `<div class="pending-banner" style="margin-top:-6px;background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.25);">
+    <div style="margin-bottom:2px;"><b>📦 Kebutuhan Barang${items.length>1?' ('+items.length+' item)':''}:</b></div>
+    ${rows}
+  </div>`;
 }
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
