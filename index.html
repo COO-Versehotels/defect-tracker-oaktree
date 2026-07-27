@@ -471,8 +471,10 @@
         <div class="seg-opt" data-g="ustatus" data-v="Done" onclick="updPickStatus(this)">Done</div>
       </div>
       <div id="updPendingWrap" style="display:none;">
-        <label class="fld">📦 Kebutuhan Barang <span style="color:var(--muted);font-weight:400;">(opsional, isi kalau nunggu barang/sparepart)</span></label>
-        <textarea class="inp" id="updPendingItems" placeholder="Contoh: AC compressor 1 PK, pipa PVC 1/2 inch, lampu LED 12W"></textarea>
+        <div style="background:var(--prog-bg);border:1.5px solid var(--prog);border-radius:12px;padding:12px 14px;margin-bottom:14px;">
+          <label class="fld" style="color:var(--prog);font-size:14px;font-weight:800;margin-bottom:6px;">📦 KEBUTUHAN BARANG <span style="color:var(--muted);font-weight:400;font-size:11px;">(isi kalau nunggu barang/sparepart)</span></label>
+          <textarea class="inp" id="updPendingItems" placeholder="Contoh: AC compressor 1 PK, pipa PVC 1/2 inch, lampu LED 12W" style="border-color:var(--prog);margin-bottom:0;"></textarea>
+        </div>
         <label class="fld">Keterangan / Alasan Pending <span style="color:var(--open);">*wajib</span></label>
         <textarea class="inp" id="updPendingReason" placeholder="Contoh: Tim overload, menunggu konfirmasi vendor..."></textarea>
       </div>
@@ -1481,8 +1483,10 @@ function renderDefectItems(){
       <input type="date" class="inp" value="${d.dateTarget||''}" onchange="updField('${d.key}','dateTarget',this.value)">
       <label class="fld">Status</label>
       ${segHtml('status',[{v:'Open',l:'Open'},{v:'In Progress',l:'Progress'},{v:'Pending',l:'Pending'},{v:'Done',l:'Done'}])}
-      ${d.status==='Pending'?`<label class="fld">📦 Kebutuhan Barang <span style="color:var(--muted);font-weight:400;">(opsional)</span></label>
-        <textarea class="inp" placeholder="Contoh: AC compressor 1 PK, pipa PVC 1/2 inch" oninput="updField('${d.key}','pendingItems',this.value)">${esc(d.pendingItems||'')}</textarea>
+      ${d.status==='Pending'?`<div style="background:var(--prog-bg);border:1.5px solid var(--prog);border-radius:12px;padding:12px 14px;margin-bottom:14px;">
+        <label class="fld" style="color:var(--prog);font-size:14px;font-weight:800;margin-bottom:6px;">📦 KEBUTUHAN BARANG <span style="color:var(--muted);font-weight:400;font-size:11px;">(opsional)</span></label>
+        <textarea class="inp" placeholder="Contoh: AC compressor 1 PK, pipa PVC 1/2 inch" oninput="updField('${d.key}','pendingItems',this.value)" style="border-color:var(--prog);margin-bottom:0;">${esc(d.pendingItems||'')}</textarea>
+        </div>
         <label class="fld">Alasan Pending <span style="color:var(--open);">*wajib</span></label>
         <textarea class="inp" placeholder="Contoh: Tim overload, menunggu konfirmasi vendor..." oninput="updField('${d.key}','pendingReason',this.value)">${esc(d.pendingReason)}</textarea>`:''}
     </div>`;
