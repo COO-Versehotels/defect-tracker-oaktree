@@ -643,7 +643,7 @@
     <div class="modal-body">
       <input type="hidden" id="userOriginalEmail">
       <label class="fld">Email</label>
-      <input type="email" class="inp" id="ufEmail" placeholder="email@versehotels.com" autocomplete="off">
+      <input type="email" class="inp" id="ufEmail" placeholder="Email (opsional — kosongkan untuk auto-generate)" autocomplete="off">
       <label class="fld">Nama</label>
       <input type="text" class="inp" id="ufName" placeholder="Nama lengkap user">
       <label class="fld">PIN 6 Digit (kosongkan = generate otomatis)</label>
@@ -706,16 +706,17 @@ function getOrCreateDefectDeviceId() {
   return id;
 }
 
-function showDefectDeviceGateScreen(status, deviceId) {
+function showDefectDeviceGateScreen(status, deviceId, name) {
   const old = document.getElementById('defect-device-gate-overlay');
   if (old) old.remove();
   const overlay = document.createElement('div');
   overlay.id = 'defect-device-gate-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:#0f2540;z-index:9999999;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;';
 
-  let icon = '⏳', title = 'Menunggu Persetujuan Admin', desc = 'HP/browser ini belum terdaftar. Minta COO untuk menyetujui akses dari Defect Command Center → Device Approval.';
+  const greet = name ? ('Halo ' + name + ', ') : '';
+  let icon = '⏳', title = 'Menunggu Persetujuan Admin', desc = greet + 'PIN Anda benar, tapi HP/browser ini belum disetujui. Minta COO untuk menyetujui akses dari menu Device Approval.';
   if (status === 'revoked') {
-    icon = '🚫'; title = 'Akses Dicabut'; desc = 'Akses untuk HP/browser ini sudah dicabut oleh Admin. Hubungi COO kalau ini keliru.';
+    icon = '🚫'; title = 'Akses Dicabut'; desc = greet + 'Akses untuk HP/browser ini sudah dicabut oleh Admin. Hubungi COO kalau ini keliru.';
   }
 
   overlay.innerHTML = `
@@ -725,10 +726,12 @@ function showDefectDeviceGateScreen(status, deviceId) {
       <div style="font-size:13px;color:#64748b;line-height:1.5;margin-bottom:16px;">${desc}</div>
       <div style="font-size:10px;color:#94a3b8;background:#f8fafc;border-radius:8px;padding:8px;margin-bottom:16px;word-break:break-all;">Device ID: ${deviceId}</div>
       <button id="defect-device-gate-recheck" style="width:100%;padding:12px;background:#1a3a5c;color:white;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">🔄 Cek Status Lagi</button>
+      <button id="defect-device-gate-back" style="width:100%;padding:10px;margin-top:8px;background:none;color:#64748b;border:none;font-family:inherit;font-size:12px;cursor:pointer;">← Kembali ke layar PIN</button>
     </div>
   `;
   document.body.appendChild(overlay);
-  document.getElementById('defect-device-gate-recheck').onclick = () => checkDefectDeviceApproval();
+  document.getElementById('defect-device-gate-recheck').onclick = () => checkAndGateDeviceApproval(_pendingIdentityEmail, _pendingIdentityName, true);
+  document.getElementById('defect-device-gate-back').onclick = () => hideDefectDeviceGateScreen();
 }
 
 function hideDefectDeviceGateScreen() {
@@ -736,16 +739,25 @@ function hideDefectDeviceGateScreen() {
   if (old) old.remove();
 }
 
-async function checkDefectDeviceApproval() {
+let _pendingIdentityEmail = null, _pendingIdentityName = null, _pendingIsAdmin = false;
+async function checkAndGateDeviceApproval(email, name, isRecheck, isAdmin) {
+  _pendingIdentityEmail = email; _pendingIdentityName = name;
+  if (typeof isAdmin === 'boolean') _pendingIsAdmin = isAdmin;
+  isAdmin = _pendingIsAdmin;
   const params = new URLSearchParams(window.location.search);
-  if (params.get('sso_trusted') === '1') return;
+  if (params.get('sso_trusted') === '1') return true;
 
   const deviceId = getOrCreateDefectDeviceId();
+  if (isRecheck) showLoading('Memeriksa status...');
   try {
     const resp = await fetch(SUPA_URL + '/rest/v1/defect_device_approvals?device_id=eq.' + encodeURIComponent(deviceId) + '&app_name=eq.' + DEFECT_APP_NAME + '&select=status', {
       headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY }
     });
     const rows = await resp.json();
+    if (isRecheck) hideLoading();
+
+    const autoApprove = isAdmin ? 'approved' : 'pending';
+    const approvedFields = isAdmin ? { approved_at: new Date().toISOString(), approved_by: email + ' (self-approve, Admin)' } : {};
 
     if (!rows || rows.length === 0) {
       await fetch(SUPA_URL + '/rest/v1/defect_device_approvals', {
@@ -756,34 +768,37 @@ async function checkDefectDeviceApproval() {
           'Authorization': 'Bearer ' + SUPA_KEY,
           'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({ device_id: deviceId, app_name: DEFECT_APP_NAME, status: 'pending', user_agent: navigator.userAgent })
+        body: JSON.stringify({ device_id: deviceId, app_name: DEFECT_APP_NAME, status: autoApprove, user_agent: navigator.userAgent, requested_by_email: email, requested_by_name: name, ...approvedFields })
       });
-      showDefectDeviceGateScreen('pending', deviceId);
-      return;
+      if (isAdmin) { hideDefectDeviceGateScreen(); return true; }
+      showDefectDeviceGateScreen('pending', deviceId, name);
+      return false;
     }
 
-    const status = rows[0].status;
+    let status = rows[0].status;
+    if (isAdmin && status !== 'approved') status = 'approved';
+
+    fetch(SUPA_URL + '/rest/v1/defect_device_approvals?device_id=eq.' + encodeURIComponent(deviceId) + '&app_name=eq.' + DEFECT_APP_NAME, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Prefer': 'return=minimal' },
+      body: JSON.stringify(status==='approved' ? { last_seen_at: new Date().toISOString(), requested_by_email: email, requested_by_name: name, status:'approved', ...approvedFields } : { requested_by_email: email, requested_by_name: name })
+    }).catch(()=>{});
+
     if (status === 'approved') {
       hideDefectDeviceGateScreen();
-      fetch(SUPA_URL + '/rest/v1/defect_device_approvals?device_id=eq.' + encodeURIComponent(deviceId) + '&app_name=eq.' + DEFECT_APP_NAME, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPA_KEY,
-          'Authorization': 'Bearer ' + SUPA_KEY,
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({ last_seen_at: new Date().toISOString() })
-      }).catch(()=>{});
+      return true;
     } else {
-      showDefectDeviceGateScreen(status, deviceId);
+      showDefectDeviceGateScreen(status, deviceId, name);
+      return false;
     }
   } catch (e) {
-    console.error('Defect device approval check error:', e);
+    if (isRecheck) hideLoading();
+    console.error('Device approval check error:', e);
+    return false;
   }
 }
 
-document.addEventListener('DOMContentLoaded', checkDefectDeviceApproval);
+
 
 async function openDeviceApprovalPanel(){
   if(currentUser?.role!=='admin'){ showToast('⛔ Hanya COO yang dapat mengelola device'); return; }
@@ -802,11 +817,14 @@ async function loadDeviceApprovals(){
     cont.innerHTML = data.map(d=>{
       const statusLabel = d.status==='approved' ? '✅ Disetujui' : d.status==='revoked' ? '🚫 Dicabut' : '⏳ Menunggu';
       const statusColor = d.status==='approved' ? '#16a34a' : d.status==='revoked' ? '#dc2626' : '#f59e0b';
+      const requester = d.requested_by_name
+        ? `<b>${esc(d.requested_by_name)}</b>${d.requested_by_email?` <span style="font-size:10px;color:#64748b">(${esc(d.requested_by_email)})</span>`:''}`
+        : '<span style="color:#f59e0b">⚠️ Belum ada yang login pakai PIN di device ini</span>';
       return `<div class="user-item">
         <div class="ui-body">
-          <div class="ui-name" style="font-size:11px;color:#64748b;">${esc((d.user_agent||'').slice(0,60))}</div>
+          <div class="ui-name" style="font-size:13px;">${requester}</div>
           <div class="ui-name" style="color:${statusColor};font-weight:700;">${statusLabel}</div>
-          <div class="ui-email" style="font-size:10px;word-break:break-all;">ID: ${esc(d.device_id)}</div>
+          <div class="ui-email" style="font-size:10px;color:#94a3b8;">${esc((d.user_agent||'').slice(0,50))}</div>
         </div>
         <div class="ui-acts">
           ${d.status!=='approved'?`<button class="ui-btn" onclick="setDefectDeviceStatus('${esc(d.id)}','approved')" title="Setujui">✅</button>`:''}
@@ -1179,13 +1197,17 @@ function editUser(email){
 
 async function saveUser(){
   const originalEmail=document.getElementById('userOriginalEmail').value;
-  const email=document.getElementById('ufEmail').value.trim().toLowerCase();
+  let email=document.getElementById('ufEmail').value.trim().toLowerCase();
   const name=document.getElementById('ufName').value.trim();
   let pin=document.getElementById('ufPin').value.trim();
   const role=document.querySelector('#ufSegRole .seg-opt.active')?.dataset.v;
   const division=document.querySelector('#ufSegDivision .seg-opt.active')?.dataset.v;
-  if(!email){ showToast('Email wajib diisi'); return; }
-  if(!email.includes('@')){ showToast('Email tidak valid'); return; }
+  if(!name){ showToast('Nama wajib diisi'); return; }
+  // Email opsional — cuma ID internal (login sekarang pakai PIN). Auto-generate kalau kosong.
+  if(!email){
+    const namePart=(name||'user').toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.+|\.+$/g,'').slice(0,20)||'user';
+    email=namePart+'.'+Math.random().toString(36).slice(2,8)+'@internal.verse';
+  } else if(!email.includes('@')){ showToast('Format email tidak valid'); return; }
   if(pin && !/^[0-9]{6}$/.test(pin)){ showToast('PIN harus 6 digit angka'); return; }
   if(!pin){ pin=String(Math.floor(100000+Math.random()*900000)); }
   if(!role){ showToast('Pilih role dulu'); return; }
@@ -1338,6 +1360,10 @@ async function loginWithPin(pin){
       errEl.style.display='block';
       return false;
     }
+    // PIN valid -> BARU sekarang cek device approval (bukan sebelumnya) —
+    // identitas pemohon sudah diketahui, jadi kalau perlu approval, admin langsung tahu punya siapa.
+    const deviceOk = await checkAndGateDeviceApproval(data.email, data.name, false, data.role==='admin');
+    if(!deviceOk) return false; // layar gate sudah ditampilkan oleh fungsi itu
     currentUser = data;
     localStorage.setItem('defect_user_email', data.email);
     enterApp();
@@ -2590,7 +2616,11 @@ window.addEventListener('load', async ()=>{
     try{
       const {data}=await supa.from('defect_users').select('email,role,name,division,hotels').eq('email',saved).maybeSingle();
       hideLoading();
-      if(data && (data.hotels||[]).includes(HOTEL)){ currentUser=data; enterApp(); return; } else if(data){ localStorage.removeItem('defect_user_email'); }
+      if(data && (data.hotels||[]).includes(HOTEL)){
+        const deviceOk = await checkAndGateDeviceApproval(data.email, data.name, false, data.role==='admin');
+        if(deviceOk){ currentUser=data; enterApp(); }
+        return;
+      } else if(data){ localStorage.removeItem('defect_user_email'); }
     }catch(e){ hideLoading(); }
   }
 });
